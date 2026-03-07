@@ -1,1 +1,2 @@
-/target
+elegia_core/target/
+elegia_core/Cargo.lock
