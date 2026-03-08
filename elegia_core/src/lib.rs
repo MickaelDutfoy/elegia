@@ -1,3 +1,5 @@
+pub mod unit_catalog;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Element {
     Fire,
@@ -25,10 +27,29 @@ impl Pool {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
+struct UnitDefinition {
+    name: &'static str,
+    cost: Pool,
+    attack: u8,
+    health: u8,
+    speed: u8,
+}
+
+#[derive(Debug)]
+struct Unit {
+    name: &'static str,
+    cost: Pool,
+    current_attack: u8,
+    current_health: u8,
+    current_speed: u8,
+}
+
+#[derive(Debug, Default)]
 struct PlayerState {
     max_pool: Pool,
     current_pool: Pool,
+    units: Vec<Unit>,
 }
 
 impl PlayerState {
@@ -51,6 +72,23 @@ impl PlayerState {
         self.current_pool.earth -= cost.earth;
         self.current_pool.water -= cost.water;
 
+        true
+    }
+
+    fn spawn_unit(&mut self, unit_type: &UnitDefinition) -> bool {
+        if !self.try_pay(unit_type.cost) {
+            return false;
+        }
+
+        let unit = Unit {
+            name: unit_type.name,
+            cost: unit_type.cost,
+            current_attack: unit_type.attack,
+            current_health: unit_type.health,
+            current_speed: unit_type.speed,
+        };
+
+        self.units.push(unit);
         true
     }
 }
@@ -181,5 +219,32 @@ mod tests {
                 ..Pool::default()
             }
         );
+    }
+
+    #[test]
+    fn failed_spawn_attempt_if_cant_afford() {
+        let mut player = PlayerState::default();
+
+        let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
+
+        let result = player.spawn_unit(tortoise);
+
+        assert_eq!(result, false);
+        assert_eq!(player.units.len(), 0);
+    }
+
+    #[test]
+    fn can_spawn_an_unit_from_catalog() {
+        let mut player = PlayerState::default();
+
+        player.start_turn(Element::Earth);
+        player.start_turn(Element::Earth);
+
+        let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
+
+        let result = player.spawn_unit(tortoise);
+
+        assert_eq!(result, true);
+        assert_eq!(player.units.len(), 1);
     }
 }
