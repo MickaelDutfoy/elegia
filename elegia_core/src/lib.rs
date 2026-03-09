@@ -1,4 +1,5 @@
 pub mod unit_catalog;
+use crate::unit_catalog::UnitDefinition;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Element {
@@ -28,21 +29,61 @@ impl Pool {
 }
 
 #[derive(Debug)]
-struct UnitDefinition {
-    name: &'static str,
-    cost: Pool,
-    attack: u8,
-    health: u8,
-    speed: u8,
-}
-
-#[derive(Debug)]
 struct Unit {
+    id: u16,
     name: &'static str,
     cost: Pool,
     current_attack: u8,
     current_health: u8,
     current_speed: u8,
+}
+
+#[derive(Debug)]
+enum PlayerId {
+    One,
+    Two,
+}
+
+#[derive(Debug, Default)]
+struct GameState {
+    player_one: PlayerState,
+    player_two: PlayerState,
+    next_unit_id: u16,
+}
+
+impl GameState {
+    fn get_player_mut(&mut self, player_id: &PlayerId) -> &mut PlayerState {
+        match player_id {
+            PlayerId::One => &mut self.player_one,
+            PlayerId::Two => &mut self.player_two,
+        }
+    }
+
+    fn spawn_unit(&mut self, player_id: PlayerId, unit_type: &UnitDefinition) -> bool {
+        {
+            let player = self.get_player_mut(&player_id);
+
+            if !player.try_pay(unit_type.cost) {
+                return false;
+            }
+        }
+
+        self.next_unit_id += 1;
+
+        let unit = Unit {
+            id: self.next_unit_id,
+            name: unit_type.name,
+            cost: unit_type.cost,
+            current_attack: unit_type.attack,
+            current_health: unit_type.health,
+            current_speed: unit_type.speed,
+        };
+
+        let player = self.get_player_mut(&player_id);
+        player.units.push(unit);
+
+        true
+    }
 }
 
 #[derive(Debug, Default)]
@@ -75,21 +116,8 @@ impl PlayerState {
         true
     }
 
-    fn spawn_unit(&mut self, unit_type: &UnitDefinition) -> bool {
-        if !self.try_pay(unit_type.cost) {
-            return false;
-        }
-
-        let unit = Unit {
-            name: unit_type.name,
-            cost: unit_type.cost,
-            current_attack: unit_type.attack,
-            current_health: unit_type.health,
-            current_speed: unit_type.speed,
-        };
-
-        self.units.push(unit);
-        true
+    fn find_unit_by_id(&self, id: u16) -> Option<&Unit> {
+        self.units.iter().find(|u| u.id == id)
     }
 }
 
@@ -223,28 +251,56 @@ mod tests {
 
     #[test]
     fn failed_spawn_attempt_if_cant_afford() {
-        let mut player = PlayerState::default();
+        let mut game = GameState::default();
 
         let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
 
-        let result = player.spawn_unit(tortoise);
+        let result = game.spawn_unit(PlayerId::One, tortoise);
 
         assert_eq!(result, false);
-        assert_eq!(player.units.len(), 0);
+        assert_eq!(game.player_one.units.len(), 0);
     }
 
     #[test]
-    fn can_spawn_an_unit_from_catalog() {
-        let mut player = PlayerState::default();
+    fn can_spawn_a_unit_from_catalog() {
+        let mut game = GameState::default();
 
-        player.start_turn(Element::Earth);
-        player.start_turn(Element::Earth);
+        game.player_one.start_turn(Element::Earth);
+        game.player_one.start_turn(Element::Earth);
 
         let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
 
-        let result = player.spawn_unit(tortoise);
+        let result = game.spawn_unit(PlayerId::One, tortoise);
 
         assert_eq!(result, true);
-        assert_eq!(player.units.len(), 1);
+        assert_eq!(game.player_one.units.len(), 1);
+    }
+
+    #[test]
+    fn unit_ids_increment_as_intended() {
+        let mut game = GameState::default();
+
+        game.player_one.start_turn(Element::Earth);
+        game.player_one.start_turn(Element::Earth);
+
+        game.player_two.start_turn(Element::Fire);
+        game.player_two.start_turn(Element::Fire);
+
+        let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
+        let fox = unit_catalog::find_unit_by_name("Ember Fox").unwrap();
+
+        let result1 = game.spawn_unit(PlayerId::One, tortoise);
+        let result2 = game.spawn_unit(PlayerId::Two, tortoise);
+        let result3 = game.spawn_unit(PlayerId::Two, fox);
+
+        assert_eq!(result1, true);
+        assert_eq!(result2, false);
+        assert_eq!(result3, true);
+
+        assert_eq!(game.player_one.units.len(), 1);
+        assert_eq!(game.player_two.units.len(), 1);
+
+        assert_eq!(game.player_one.units[0].id, 1);
+        assert_eq!(game.player_two.units[0].id, 2);
     }
 }

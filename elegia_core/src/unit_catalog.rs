@@ -1,4 +1,13 @@
-use crate::{Pool, UnitDefinition};
+use crate::{Pool};
+
+#[derive(Debug)]
+pub struct UnitDefinition {
+    pub name: &'static str,
+    pub cost: Pool,
+    pub attack: u8,
+    pub health: u8,
+    pub speed: u8,
+}
 
 pub const UNIT_CATALOG: [UnitDefinition; 3] = [
     UnitDefinition {
