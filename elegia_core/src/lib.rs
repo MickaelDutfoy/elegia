@@ -28,17 +28,36 @@ impl Pool {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Hex {
+    q: i8,
+    r: i8,
+}
+
+#[derive(Debug, Copy, Clone)]
 struct Unit {
     id: u16,
     name: &'static str,
     cost: Pool,
+    position: Hex,
     current_attack: u8,
     current_health: u8,
     current_speed: u8,
 }
 
-#[derive(Debug)]
+impl Unit {
+    fn take_damage(&mut self, amount: u8) -> bool {
+        if amount >= self.current_health {
+            self.current_health = 0;
+            return true;
+        }
+
+        self.current_health -= amount;
+        false
+    }
+}
+
+#[derive(Debug, PartialEq)]
 enum PlayerId {
     One,
     Two,
@@ -59,7 +78,7 @@ impl GameState {
         }
     }
 
-    fn spawn_unit(&mut self, player_id: PlayerId, unit_type: &UnitDefinition) -> bool {
+    fn spawn_unit(&mut self, player_id: PlayerId, unit_type: &UnitDefinition, position: Hex) -> bool {
         {
             let player = self.get_player_mut(&player_id);
 
@@ -73,6 +92,7 @@ impl GameState {
         let unit = Unit {
             id: self.next_unit_id,
             name: unit_type.name,
+            position: position,
             cost: unit_type.cost,
             current_attack: unit_type.attack,
             current_health: unit_type.health,
@@ -80,9 +100,46 @@ impl GameState {
         };
 
         let player = self.get_player_mut(&player_id);
-        player.units.push(unit);
+        player.add_unit(unit);
 
         true
+    }
+
+    fn get_unit_by_id(&self, id: u16) -> Option<(&Unit, PlayerId)> {
+        if let Some(unit) = self.player_one.units.iter().find(|unit| unit.id == id) {
+            return Some((unit, PlayerId::One));
+        }
+
+        if let Some(unit) = self.player_two.units.iter().find(|unit| unit.id == id) {
+            return Some((unit, PlayerId::Two));
+        }
+
+        None
+    }
+
+    fn get_unit_by_id_mut(&mut self, id: u16) -> Option<(&mut Unit, PlayerId)> {
+        if let Some(unit) = self.player_one.units.iter_mut().find(|unit| unit.id == id) {
+            return Some((unit, PlayerId::One));
+        }
+
+        if let Some(unit) = self.player_two.units.iter_mut().find(|unit| unit.id == id) {
+            return Some((unit, PlayerId::Two));
+        }
+
+        None
+    }
+
+    fn unit_combat(&mut self, attacker_id: u16, target_id: u16) {
+        let damage = self.get_unit_by_id(attacker_id).unwrap().0.current_attack;
+
+        let (unit, player_id) = self.get_unit_by_id_mut(target_id).unwrap();
+
+        let is_dead = unit.take_damage(damage);
+
+        if is_dead {
+            let player = self.get_player_mut(&player_id);
+            player.remove_unit(target_id);
+        }
     }
 }
 
@@ -116,8 +173,14 @@ impl PlayerState {
         true
     }
 
-    fn find_unit_by_id(&self, id: u16) -> Option<&Unit> {
-        self.units.iter().find(|u| u.id == id)
+    fn add_unit(&mut self, unit: Unit) {
+        self.units.push(unit);
+    }
+
+    fn remove_unit(&mut self, unit_id: u16) {
+        if let Some(i) = self.units.iter().position(|unit| unit.id == unit_id) {
+            self.units.remove(i);
+        }
     }
 }
 
@@ -255,7 +318,7 @@ mod tests {
 
         let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
 
-        let result = game.spawn_unit(PlayerId::One, tortoise);
+        let result = game.spawn_unit(PlayerId::One, tortoise, Hex {q: 0, r: -3});
 
         assert_eq!(result, false);
         assert_eq!(game.player_one.units.len(), 0);
@@ -270,7 +333,7 @@ mod tests {
 
         let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
 
-        let result = game.spawn_unit(PlayerId::One, tortoise);
+        let result = game.spawn_unit(PlayerId::One, tortoise, Hex {q: 0, r: -3});
 
         assert_eq!(result, true);
         assert_eq!(game.player_one.units.len(), 1);
@@ -289,18 +352,80 @@ mod tests {
         let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
         let fox = unit_catalog::find_unit_by_name("Ember Fox").unwrap();
 
-        let result1 = game.spawn_unit(PlayerId::One, tortoise);
-        let result2 = game.spawn_unit(PlayerId::Two, tortoise);
-        let result3 = game.spawn_unit(PlayerId::Two, fox);
+        let result1 = game.spawn_unit(PlayerId::One, tortoise, Hex {q: 0, r: -3});
+        let result2 = game.spawn_unit(PlayerId::Two, tortoise, Hex {q: 0, r: 3});
+        let result3 = game.spawn_unit(PlayerId::Two, fox, Hex {q: 0, r: 3});
 
         assert_eq!(result1, true);
         assert_eq!(result2, false);
         assert_eq!(result3, true);
 
-        assert_eq!(game.player_one.units.len(), 1);
-        assert_eq!(game.player_two.units.len(), 1);
-
         assert_eq!(game.player_one.units[0].id, 1);
         assert_eq!(game.player_two.units[0].id, 2);
+    }
+
+    #[test]
+    fn can_get_an_units_details_from_id() {
+        let mut game = GameState::default();
+
+        game.player_two.start_turn(Element::Earth);
+        game.player_two.start_turn(Element::Earth);
+
+        let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
+
+        game.spawn_unit(PlayerId::Two, tortoise, Hex {q: 0, r: 3});
+
+        let summoned_tortoise = game.get_unit_by_id_mut(1).unwrap();
+
+        assert_eq!(summoned_tortoise.1, PlayerId::Two);
+        assert_eq!(summoned_tortoise.0.current_health, 5);
+    }
+
+    #[test]
+    fn combat_applies_damage_to_target() {
+        let mut game = GameState::default();
+
+        game.player_one.start_turn(Element::Earth);
+        game.player_one.start_turn(Element::Earth);
+
+        game.player_two.start_turn(Element::Fire);
+        game.player_two.start_turn(Element::Fire);
+
+        let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
+        let fox = unit_catalog::find_unit_by_name("Ember Fox").unwrap();
+
+        game.spawn_unit(PlayerId::One, tortoise, Hex {q: 0, r: -3});
+        game.spawn_unit(PlayerId::Two, fox, Hex {q: 0, r: 3});
+
+        let tortoise_id = game.player_one.units[0].id;
+        let fox_id = game.player_two.units[0].id;
+
+        game.unit_combat(fox_id, tortoise_id);
+
+        let tortoise = game.get_unit_by_id(tortoise_id).unwrap().0;
+
+        assert_eq!(tortoise.current_health, 2);
+    }
+
+    #[test]
+    fn dead_unit_is_removed_from_players_vec() {
+        let mut game = GameState::default();
+
+        game.player_one.start_turn(Element::Air);
+        game.player_one.start_turn(Element::Air);
+
+        game.player_two.start_turn(Element::Fire);
+        game.player_two.start_turn(Element::Fire);
+
+        let falcon = unit_catalog::find_unit_by_name("Zephyr Falcon").unwrap();
+        let fox = unit_catalog::find_unit_by_name("Ember Fox").unwrap();
+
+        game.spawn_unit(PlayerId::One, falcon, Hex {q: 0, r: -3});
+        game.spawn_unit(PlayerId::Two, fox, Hex {q: 0, r: 3});
+
+        game.unit_combat(2, 1);
+
+        assert_eq!(game.player_one.units.len(), 0);
+        assert_eq!(game.player_two.units.len(), 1);
     }
 }
