@@ -1,0 +1,8 @@
+[package]
+name = "elegia"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+elegia_core = { path = "./elegia_core" }
+macroquad = "0.4"
