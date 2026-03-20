@@ -1,4 +1,4 @@
-use elegia_core::{Board, PlayerId};
+use elegia_core::{Board, Hex, PlayerId};
 use macroquad::prelude::*;
 
 const BG_COLOR: Color = Color::new(0.75, 0.85, 0.95, 1.0); // bleu pâle
@@ -37,6 +37,54 @@ fn hex_to_screen(q: i32, r: i32, size: f32) -> (f32, f32) {
     (x, y)
 }
 
+fn closest_hex_to_point(
+    mouse_x: f32,
+    mouse_y: f32,
+    hexes: &[Hex],
+    origin_x: f32,
+    origin_y: f32,
+    size: f32,
+) -> Option<Hex> {
+    let mut closest_hex = None;
+    let mut closest_distance_sq = f32::MAX;
+
+    for hex in hexes {
+        let (dx, dy) = hex_to_screen(hex.q.into(), hex.r.into(), size);
+        let center_x = origin_x + dx;
+        let center_y = origin_y + dy;
+
+        let dist_x = mouse_x - center_x;
+        let dist_y = mouse_y - center_y;
+        let distance_sq = dist_x * dist_x + dist_y * dist_y;
+
+        if distance_sq < closest_distance_sq {
+            closest_distance_sq = distance_sq;
+            closest_hex = Some(*hex);
+        }
+    }
+
+    closest_hex
+}
+
+fn highlight_hex(x: f32, y: f32, size: f32, color: Color) {
+    let inner_size = size * 0.85;
+
+    let mut points = Vec::new();
+
+    for i in 0..6 {
+        let angle = std::f32::consts::PI / 6.0 + std::f32::consts::PI / 3.0 * i as f32;
+        let px = x + inner_size * angle.cos();
+        let py = y + inner_size * angle.sin();
+        points.push(vec2(px, py));
+    }
+
+    for i in 0..6 {
+        let p1 = points[i];
+        let p2 = points[(i + 1) % 6];
+        draw_line(p1.x, p1.y, p2.x, p2.y, 3.0, color);
+    }
+}
+
 #[macroquad::main("Elegia")]
 async fn main() {
     let board = Board::default();
@@ -45,6 +93,8 @@ async fn main() {
     let south_orb = board.orb_hex(PlayerId::South);
 
     let size = 40.0;
+
+    let mut selected_hex: Option<Hex> = None;
 
     loop {
         clear_background(BG_COLOR);
@@ -61,6 +111,10 @@ async fn main() {
             let y = origin_y + dy;
 
             draw_hex_fill(x, y, size, HEX_FILL);
+
+            if Some(*hex) == selected_hex {
+                highlight_hex(x, y, size, YELLOW);
+            }
 
             if board.is_spawn_hex(*hex, PlayerId::North) {
                 draw_hex_fill(x, y, size, NORTH_SPAWN);
@@ -81,6 +135,16 @@ async fn main() {
 
             if *hex == south_orb {
                 draw_circle(x, y, size * 0.35, SOUTH_ORB);
+            }
+        }
+
+        if is_mouse_button_pressed(MouseButton::Left) {
+            let (mouse_x, mouse_y) = mouse_position();
+            if let Some(hex) =
+                closest_hex_to_point(mouse_x, mouse_y, &hexes, origin_x, origin_y, size)
+            {
+                selected_hex = Some(hex);
+                println!("Selected hex: {:?}", hex);
             }
         }
 
