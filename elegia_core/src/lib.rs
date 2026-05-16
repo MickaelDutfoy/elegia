@@ -10,11 +10,11 @@ enum Element {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-struct Pool {
-    fire: u8,
-    water: u8,
-    air: u8,
-    earth: u8,
+pub struct Pool {
+    pub fire: u8,
+    pub water: u8,
+    pub air: u8,
+    pub earth: u8,
 }
 
 impl Pool {
@@ -112,7 +112,7 @@ impl Unit {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 struct Orb {
     max_health: u8,
     current_health: u8,
@@ -139,18 +139,30 @@ impl Orb {
     }
 }
 
-#[derive(Debug, Default)]
-struct PlayerState {
-    max_pool: Pool,
-    current_pool: Pool,
-    orb: Orb,
-    units: Vec<Unit>,
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum PlayerId {
+    South,
+    North,
 }
 
-impl PlayerState {
-    fn start_turn(&mut self, up: Element) {
-        self.max_pool.up(up);
-        self.current_pool = self.max_pool;
+#[derive(Debug)]
+struct TurnState {
+    player_id: PlayerId,
+    current_pool: Pool,
+    mana_increased: bool,
+}
+
+impl TurnState {
+    fn new(player_id: PlayerId, current_pool: Pool) -> Self {
+        Self {
+            player_id,
+            current_pool,
+            mana_increased: false,
+        }
+    }
+
+    fn refresh_pool(&mut self, pool: Pool) {
+        self.current_pool = pool;
     }
 
     fn try_pay(&mut self, cost: Pool) -> bool {
@@ -169,6 +181,19 @@ impl PlayerState {
 
         true
     }
+}
+
+#[derive(Debug, Default, Clone)]
+struct PlayerState {
+    max_pool: Pool,
+    orb: Orb,
+    units: Vec<Unit>,
+}
+
+impl PlayerState {
+    fn increase_mana_pool(&mut self, up: Element) {
+        self.max_pool.up(up);
+    }
 
     fn add_unit(&mut self, unit: Unit) {
         self.units.push(unit);
@@ -181,21 +206,42 @@ impl PlayerState {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum PlayerId {
-    South,
-    North,
-}
-
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct GameState {
     board: Board,
     player_south: PlayerState,
     player_north: PlayerState,
     next_unit_id: u16,
+    current_turn_id: u16,
+    turn: TurnState,
 }
 
+impl Default for GameState {
+    fn default() -> Self {
+        let player_south = PlayerState::default();
+        let player_north = PlayerState::default();
+
+        let player_id = PlayerId::South;
+        let current_pool = player_south.max_pool;
+
+        Self {
+            board: Board::default(),
+            player_south,
+            player_north,
+            next_unit_id: 0,
+            current_turn_id: 0,
+            turn: TurnState::new(player_id, current_pool),
+        }
+    }
+}
 impl GameState {
+    fn get_player(&self, player_id: PlayerId) -> PlayerState {
+        match player_id {
+            PlayerId::South => self.player_south.clone(),
+            PlayerId::North => self.player_north.clone(),
+        }
+    }
+
     fn get_player_mut(&mut self, player_id: PlayerId) -> &mut PlayerState {
         match player_id {
             PlayerId::South => &mut self.player_south,
@@ -249,22 +295,53 @@ impl GameState {
                 .any(|unit| unit.position == position)
     }
 
-    fn spawn_unit(
-        &mut self,
-        player_id: PlayerId,
-        unit_type: &'static UnitDefinition,
-        position: Hex,
-    ) -> bool {
+    fn current_player_id(&self) -> PlayerId {
+        match self.current_turn_id % 2 {
+            0 => PlayerId::South,
+            _ => PlayerId::North,
+        }
+    }
+
+    fn end_turn(&mut self) {
+        self.current_turn_id += 1;
+
+        self.start_new_turn();
+    }
+
+    fn start_new_turn(&mut self) {
+        let player_id = self.current_player_id();
+
+        self.turn = TurnState::new(player_id, self.get_player(player_id).max_pool)
+    }
+
+    fn increase_current_player_mana(&mut self, up: Element) -> bool {
+        if self.turn.mana_increased {
+            return false;
+        }
+
+        let player_id = self.current_player_id();
+
+        let new_pool = {
+            let player = self.get_player_mut(player_id);
+            player.increase_mana_pool(up);
+            player.max_pool
+        };
+
+        self.turn.refresh_pool(new_pool);
+        self.turn.mana_increased = true;
+
+        true
+    }
+
+    fn spawn_unit(&mut self, unit_type: &'static UnitDefinition, position: Hex) -> bool {
+        let player_id = self.current_player_id();
+
         if !self.board.is_spawn_hex(position, player_id) || self.is_hex_occupied(position) {
             return false;
         }
 
-        {
-            let player = self.get_player_mut(player_id);
-
-            if !player.try_pay(unit_type.cost) {
-                return false;
-            }
+        if !self.turn.try_pay(unit_type.cost) {
+            return false;
         }
 
         self.next_unit_id += 1;
@@ -299,293 +376,4 @@ impl GameState {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn turn_1_up_fire_refreshes_current() {
-        let mut player = PlayerState::default();
-
-        player.start_turn(Element::Fire);
-
-        assert_eq!(
-            player.max_pool,
-            Pool {
-                fire: 1,
-                ..Pool::default()
-            }
-        );
-        assert_eq!(
-            player.current_pool,
-            Pool {
-                fire: 1,
-                ..Pool::default()
-            }
-        );
-    }
-
-    #[test]
-    fn turn_2_up_water_accumulates_in_max_and_current() {
-        let mut player = PlayerState::default();
-
-        player.start_turn(Element::Fire);
-        player.start_turn(Element::Water);
-
-        assert_eq!(
-            player.max_pool,
-            Pool {
-                fire: 1,
-                water: 1,
-                ..Pool::default()
-            }
-        );
-        assert_eq!(
-            player.current_pool,
-            Pool {
-                fire: 1,
-                water: 1,
-                ..Pool::default()
-            }
-        );
-    }
-
-    #[test]
-    fn refresh_overwrites_spent_current_pool() {
-        let mut player = PlayerState::default();
-
-        player.start_turn(Element::Fire);
-        player.current_pool.fire = 0; // simulate consuming fire
-        player.start_turn(Element::Air);
-
-        assert_eq!(
-            player.max_pool,
-            Pool {
-                fire: 1,
-                air: 1,
-                ..Pool::default()
-            }
-        );
-        assert_eq!(
-            player.current_pool,
-            Pool {
-                fire: 1,
-                air: 1,
-                ..Pool::default()
-            }
-        );
-    }
-
-    #[test]
-    fn cant_pay_mana_cost() {
-        let mut player = PlayerState::default();
-
-        player.start_turn(Element::Water);
-
-        let cost = Pool {
-            water: 2,
-            ..Pool::default()
-        };
-
-        let result = player.try_pay(cost);
-
-        assert_eq!(result, false);
-
-        assert_eq!(
-            player.current_pool,
-            Pool {
-                water: 1,
-                ..Pool::default()
-            }
-        );
-    }
-
-    #[test]
-    fn successful_payment_decreases_multiple_elements() {
-        let mut player = PlayerState::default();
-
-        player.start_turn(Element::Water);
-        player.start_turn(Element::Water);
-        player.start_turn(Element::Earth);
-
-        let cost = Pool {
-            water: 1,
-            earth: 1,
-            ..Pool::default()
-        };
-
-        let result = player.try_pay(cost);
-
-        assert_eq!(result, true);
-
-        assert_eq!(
-            player.current_pool,
-            Pool {
-                water: 1,
-                ..Pool::default()
-            }
-        );
-    }
-
-    #[test]
-    fn failed_spawn_attempt_if_cant_afford() {
-        let mut game = GameState::default();
-
-        let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
-
-        let result = game.spawn_unit(PlayerId::South, tortoise, Hex { q: 0, r: -3 });
-
-        assert_eq!(result, false);
-        assert_eq!(game.player_south.units.len(), 0);
-    }
-
-    #[test]
-    fn can_spawn_a_unit_from_catalog() {
-        let mut game = GameState::default();
-
-        game.player_south.start_turn(Element::Earth);
-        game.player_south.start_turn(Element::Earth);
-
-        let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
-
-        let result = game.spawn_unit(PlayerId::South, tortoise, Hex { q: 0, r: -3 });
-
-        assert_eq!(result, true);
-        assert_eq!(game.player_south.units.len(), 1);
-    }
-
-    #[test]
-    fn unit_ids_increment_as_intended() {
-        let mut game = GameState::default();
-
-        game.player_south.start_turn(Element::Earth);
-        game.player_south.start_turn(Element::Earth);
-
-        game.player_north.start_turn(Element::Fire);
-        game.player_north.start_turn(Element::Fire);
-
-        let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
-        let fox = unit_catalog::find_unit_by_name("Ember Fox").unwrap();
-
-        let result1 = game.spawn_unit(PlayerId::South, tortoise, Hex { q: 0, r: -3 });
-        let result2 = game.spawn_unit(PlayerId::North, tortoise, Hex { q: 0, r: 3 });
-        let result3 = game.spawn_unit(PlayerId::North, fox, Hex { q: 0, r: 3 });
-
-        assert_eq!(result1, true);
-        assert_eq!(result2, false);
-        assert_eq!(result3, true);
-
-        assert_eq!(game.player_south.units[0].id, 1);
-        assert_eq!(game.player_north.units[0].id, 2);
-    }
-
-    #[test]
-    fn can_get_an_units_details_from_id() {
-        let mut game = GameState::default();
-
-        game.player_north.start_turn(Element::Earth);
-        game.player_north.start_turn(Element::Earth);
-
-        let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
-
-        game.spawn_unit(PlayerId::North, tortoise, Hex { q: 0, r: 3 });
-
-        let summoned_tortoise = game.get_unit_by_id_mut(1).unwrap();
-
-        assert_eq!(summoned_tortoise.1, PlayerId::North);
-        assert_eq!(summoned_tortoise.0.current_health, 5);
-    }
-
-    #[test]
-    fn combat_applies_damage_to_target() {
-        let mut game = GameState::default();
-
-        game.player_south.start_turn(Element::Earth);
-        game.player_south.start_turn(Element::Earth);
-
-        game.player_north.start_turn(Element::Fire);
-        game.player_north.start_turn(Element::Fire);
-
-        let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
-        let fox = unit_catalog::find_unit_by_name("Ember Fox").unwrap();
-
-        game.spawn_unit(PlayerId::South, tortoise, Hex { q: 0, r: -3 });
-        game.spawn_unit(PlayerId::North, fox, Hex { q: 0, r: 3 });
-
-        let tortoise_id = game.player_south.units[0].id;
-        let fox_id = game.player_north.units[0].id;
-
-        game.unit_combat(fox_id, tortoise_id);
-
-        let tortoise = game.get_unit_by_id(tortoise_id).unwrap().0;
-
-        assert_eq!(tortoise.current_health, 2);
-    }
-
-    #[test]
-    fn dead_unit_is_removed_from_players_vec() {
-        let mut game = GameState::default();
-
-        game.player_south.start_turn(Element::Air);
-        game.player_south.start_turn(Element::Air);
-
-        game.player_north.start_turn(Element::Fire);
-        game.player_north.start_turn(Element::Fire);
-
-        let falcon = unit_catalog::find_unit_by_name("Zephyr Falcon").unwrap();
-        let fox = unit_catalog::find_unit_by_name("Ember Fox").unwrap();
-
-        game.spawn_unit(PlayerId::South, falcon, Hex { q: 0, r: -3 });
-        game.spawn_unit(PlayerId::North, fox, Hex { q: 0, r: 3 });
-
-        game.unit_combat(2, 1);
-
-        assert_eq!(game.player_south.units.len(), 0);
-        assert_eq!(game.player_north.units.len(), 1);
-    }
-
-    #[test]
-    fn cant_summon_an_unit_on_occupied_hex() {
-        let mut game = GameState::default();
-
-        game.player_south.start_turn(Element::Earth);
-        game.player_south.start_turn(Element::Earth);
-        game.player_south.start_turn(Element::Fire);
-        game.player_south.start_turn(Element::Fire);
-
-        let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
-        let fox = unit_catalog::find_unit_by_name("Ember Fox").unwrap();
-
-        let result1 = game.spawn_unit(PlayerId::South, tortoise, Hex { q: 0, r: -3 });
-        let result2 = game.spawn_unit(PlayerId::South, fox, Hex { q: 0, r: -3 });
-
-        assert_eq!(result1, true);
-        assert_eq!(result2, false);
-    }
-
-    #[test]
-    fn cant_summon_outside_spawn_zone() {
-        let mut game = GameState::default();
-
-        game.player_south.start_turn(Element::Earth);
-        game.player_south.start_turn(Element::Earth);
-
-        let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
-
-        let result = game.spawn_unit(PlayerId::South, tortoise, Hex { q: 2, r: 3 });
-
-        assert_eq!(result, false);
-    }
-
-    fn cant_summon_on_orb() {
-        let mut game = GameState::default();
-
-        game.player_south.start_turn(Element::Earth);
-        game.player_south.start_turn(Element::Earth);
-
-        let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
-
-        let result = game.spawn_unit(PlayerId::South, tortoise, Hex { q: 0, r: -4 });
-
-        assert_eq!(result, false);
-    }
-}
+mod tests;
