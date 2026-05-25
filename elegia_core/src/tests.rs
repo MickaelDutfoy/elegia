@@ -139,7 +139,7 @@ fn successful_payment_decreases_multiple_elements() {
 fn failed_spawn_attempt_if_cant_afford() {
     let mut game = GameState::default();
 
-    let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
+    let tortoise = &unit_catalog::MOSSBACK_TORTOISE;
 
     let result = game.spawn_unit(tortoise, Hex { q: 0, r: -3 });
 
@@ -151,7 +151,7 @@ fn failed_spawn_attempt_if_cant_afford() {
 fn can_spawn_a_unit_from_catalog() {
     let mut game = GameState::default();
 
-    let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
+    let tortoise = &unit_catalog::MOSSBACK_TORTOISE;
 
     game.increase_current_player_mana(Element::Earth);
     game.end_turn();
@@ -168,8 +168,8 @@ fn can_spawn_a_unit_from_catalog() {
 fn unit_ids_increment_as_intended() {
     let mut game = GameState::default();
 
-    let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
-    let fox = unit_catalog::find_unit_by_name("Ember Fox").unwrap();
+    let tortoise = &unit_catalog::MOSSBACK_TORTOISE;
+    let fox = &unit_catalog::EMBER_FOX;
 
     game.increase_current_player_mana(Element::Earth);
     game.end_turn();
@@ -197,7 +197,7 @@ fn unit_ids_increment_as_intended() {
 fn can_get_an_units_details_from_id() {
     let mut game = GameState::default();
 
-    let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
+    let tortoise = &unit_catalog::MOSSBACK_TORTOISE;
 
     game.increase_current_player_mana(Element::Earth);
     game.end_turn();
@@ -206,38 +206,38 @@ fn can_get_an_units_details_from_id() {
 
     game.spawn_unit(tortoise, Hex { q: 0, r: 3 });
 
-    let summoned_tortoise = game.get_unit_by_id_mut(1).unwrap();
+    let summoned_tortoise = game.unit_mut(1).unwrap();
 
     assert_eq!(summoned_tortoise.1, PlayerId::South);
-    assert_eq!(summoned_tortoise.0.current_health, 5);
+    assert_eq!(summoned_tortoise.0.current_health, 3);
 }
 
 #[test]
 fn combat_applies_damage_to_target() {
     let mut game = GameState::default();
 
-    let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
-    let fox = unit_catalog::find_unit_by_name("Ember Fox").unwrap();
+    let tortoise = &unit_catalog::MOSSBACK_TORTOISE;
+    let falcon = &unit_catalog::ZEPHYR_FALCON;
 
     game.increase_current_player_mana(Element::Earth);
     game.end_turn();
-    game.increase_current_player_mana(Element::Fire);
+    game.increase_current_player_mana(Element::Air);
     game.end_turn();
     game.increase_current_player_mana(Element::Earth);
 
     game.spawn_unit(tortoise, Hex { q: 0, r: 3 });
 
     game.end_turn();
-    game.increase_current_player_mana(Element::Fire);
+    game.increase_current_player_mana(Element::Air);
 
-    game.spawn_unit(fox, Hex { q: 0, r: -3 });
+    game.spawn_unit(falcon, Hex { q: 0, r: -3 });
 
     let tortoise_id = game.player_south.units[0].id;
-    let fox_id = game.player_north.units[0].id;
+    let falcon_id = game.player_north.units[0].id;
 
-    game.unit_combat(fox_id, tortoise_id);
+    game.unit_combat(falcon_id, tortoise_id);
 
-    let tortoise = game.get_unit_by_id(tortoise_id).unwrap().0;
+    let tortoise = game.unit(tortoise_id).unwrap().0;
 
     assert_eq!(tortoise.current_health, 2);
 }
@@ -246,8 +246,8 @@ fn combat_applies_damage_to_target() {
 fn dead_unit_is_removed_from_players_vec() {
     let mut game = GameState::default();
 
-    let falcon = unit_catalog::find_unit_by_name("Zephyr Falcon").unwrap();
-    let fox = unit_catalog::find_unit_by_name("Ember Fox").unwrap();
+    let falcon = &unit_catalog::ZEPHYR_FALCON;
+    let fox = &unit_catalog::EMBER_FOX;
 
     game.increase_current_player_mana(Element::Air);
     game.end_turn();
@@ -272,7 +272,7 @@ fn dead_unit_is_removed_from_players_vec() {
 fn cant_summon_outside_spawn_zone_or_orb() {
     let mut game = GameState::default();
 
-    let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
+    let tortoise = &unit_catalog::MOSSBACK_TORTOISE;
 
     game.increase_current_player_mana(Element::Earth);
     game.end_turn();
@@ -300,8 +300,8 @@ fn cant_summon_outside_spawn_zone_or_orb() {
 fn cant_summon_an_unit_on_occupied_hex() {
     let mut game = GameState::default();
 
-    let tortoise = unit_catalog::find_unit_by_name("Mossback Tortoise").unwrap();
-    let fox = unit_catalog::find_unit_by_name("Ember Fox").unwrap();
+    let tortoise = &unit_catalog::MOSSBACK_TORTOISE;
+    let fox = &unit_catalog::EMBER_FOX;
 
     game.increase_current_player_mana(Element::Earth);
     game.end_turn();

@@ -2,7 +2,7 @@ pub mod unit_catalog;
 use crate::unit_catalog::UnitDefinition;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Element {
+pub enum Element {
     Fire,
     Water,
     Air,
@@ -34,7 +34,7 @@ pub struct Hex {
     pub r: i8,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Board {
     radius: u8,
 }
@@ -46,14 +46,6 @@ impl Default for Board {
 }
 
 impl Board {
-    fn is_valid_hex(&self, hex: Hex) -> bool {
-        let q = hex.q;
-        let r = hex.r;
-        let s = -q - r;
-
-        q.abs().max(r.abs()).max(s.abs()) <= self.radius.try_into().unwrap()
-    }
-
     pub fn all_hexes(&self) -> Vec<Hex> {
         let radius = self.radius as i8;
         let mut hexes = Vec::new();
@@ -69,6 +61,14 @@ impl Board {
         }
 
         hexes
+    }
+
+    fn is_valid_hex(&self, hex: Hex) -> bool {
+        let q = hex.q;
+        let r = hex.r;
+        let s = -q - r;
+
+        q.abs().max(r.abs()).max(s.abs()) <= self.radius.try_into().unwrap()
     }
 
     pub fn orb_hex(&self, player_id: PlayerId) -> Hex {
@@ -91,13 +91,13 @@ impl Board {
 }
 
 #[derive(Debug, Copy, Clone)]
-struct Unit {
+pub struct Unit {
     id: u16,
-    kind: &'static UnitDefinition,
-    position: Hex,
-    current_attack: u8,
-    current_health: u8,
-    current_speed: u8,
+    pub kind: &'static UnitDefinition,
+    pub position: Hex,
+    pub current_attack: u8,
+    pub current_health: u8,
+    pub current_speed: u8,
 }
 
 impl Unit {
@@ -146,7 +146,7 @@ pub enum PlayerId {
 }
 
 #[derive(Debug)]
-struct TurnState {
+pub struct TurnState {
     player_id: PlayerId,
     current_pool: Pool,
     mana_increased: bool,
@@ -159,6 +159,14 @@ impl TurnState {
             current_pool,
             mana_increased: false,
         }
+    }
+
+    pub fn current_pool(&self) -> Pool {
+        self.current_pool
+    }
+
+    pub fn has_increased_mana(&self) -> bool {
+        self.mana_increased
     }
 
     fn refresh_pool(&mut self, pool: Pool) {
@@ -183,11 +191,31 @@ impl TurnState {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 struct PlayerState {
     max_pool: Pool,
     orb: Orb,
     units: Vec<Unit>,
+    roster: Vec<&'static UnitDefinition>,
+}
+
+impl Default for PlayerState {
+    fn default() -> Self {
+        let test_roster: Vec<&'static UnitDefinition> = vec![
+            &unit_catalog::MOSSBACK_TORTOISE,
+            &unit_catalog::EMBER_FOX,
+            &unit_catalog::ROOTGUARD_DRYAD,
+            &unit_catalog::ASHBARK_STAG,
+            &unit_catalog::VOLCANIC_TREANT,
+        ];
+
+        Self {
+            max_pool: Pool::default(),
+            orb: Orb::default(),
+            units: Vec::default(),
+            roster: test_roster,
+        }
+    }
 }
 
 impl PlayerState {
@@ -207,8 +235,8 @@ impl PlayerState {
 }
 
 #[derive(Debug)]
-struct GameState {
-    board: Board,
+pub struct GameState {
+    pub board: Board,
     player_south: PlayerState,
     player_north: PlayerState,
     next_unit_id: u16,
@@ -234,22 +262,30 @@ impl Default for GameState {
         }
     }
 }
+
 impl GameState {
-    fn get_player(&self, player_id: PlayerId) -> PlayerState {
+    fn player(&self, player_id: PlayerId) -> &PlayerState {
         match player_id {
-            PlayerId::South => self.player_south.clone(),
-            PlayerId::North => self.player_north.clone(),
+            PlayerId::South => &self.player_south,
+            PlayerId::North => &self.player_north,
         }
     }
 
-    fn get_player_mut(&mut self, player_id: PlayerId) -> &mut PlayerState {
+    fn player_mut(&mut self, player_id: PlayerId) -> &mut PlayerState {
         match player_id {
             PlayerId::South => &mut self.player_south,
             PlayerId::North => &mut self.player_north,
         }
     }
 
-    fn get_unit_by_id(&self, id: u16) -> Option<(&Unit, PlayerId)> {
+    pub fn roster_from_player(&self, player_id: PlayerId) -> &[&'static UnitDefinition] {
+        match player_id {
+            PlayerId::South => &self.player_south.roster,
+            PlayerId::North => &self.player_north.roster,
+        }
+    }
+
+    fn unit(&self, id: u16) -> Option<(&Unit, PlayerId)> {
         if let Some(unit) = self.player_south.units.iter().find(|unit| unit.id == id) {
             return Some((unit, PlayerId::South));
         }
@@ -261,7 +297,7 @@ impl GameState {
         None
     }
 
-    fn get_unit_by_id_mut(&mut self, id: u16) -> Option<(&mut Unit, PlayerId)> {
+    fn unit_mut(&mut self, id: u16) -> Option<(&mut Unit, PlayerId)> {
         if let Some(unit) = self
             .player_south
             .units
@@ -283,6 +319,13 @@ impl GameState {
         None
     }
 
+    pub fn units_from_player(&self, player_id: PlayerId) -> &[Unit] {
+        match player_id {
+            PlayerId::South => &self.player_south.units,
+            PlayerId::North => &self.player_north.units,
+        }
+    }
+
     fn is_hex_occupied(&self, position: Hex) -> bool {
         self.player_south
             .units
@@ -295,14 +338,25 @@ impl GameState {
                 .any(|unit| unit.position == position)
     }
 
-    fn current_player_id(&self) -> PlayerId {
+    pub fn current_player_id(&self) -> PlayerId {
         match self.current_turn_id % 2 {
             0 => PlayerId::South,
             _ => PlayerId::North,
         }
     }
 
-    fn end_turn(&mut self) {
+    pub fn current_player_max_pool(&self) -> Pool {
+        let player_id = self.current_player_id();
+        let player = self.player(player_id);
+
+        player.max_pool
+    }
+
+    pub fn turn(&self) -> &TurnState {
+        &self.turn
+    }
+
+    pub fn end_turn(&mut self) {
         self.current_turn_id += 1;
 
         self.start_new_turn();
@@ -311,10 +365,10 @@ impl GameState {
     fn start_new_turn(&mut self) {
         let player_id = self.current_player_id();
 
-        self.turn = TurnState::new(player_id, self.get_player(player_id).max_pool)
+        self.turn = TurnState::new(player_id, self.player(player_id).max_pool)
     }
 
-    fn increase_current_player_mana(&mut self, up: Element) -> bool {
+    pub fn increase_current_player_mana(&mut self, up: Element) -> bool {
         if self.turn.mana_increased {
             return false;
         }
@@ -322,7 +376,7 @@ impl GameState {
         let player_id = self.current_player_id();
 
         let new_pool = {
-            let player = self.get_player_mut(player_id);
+            let player = self.player_mut(player_id);
             player.increase_mana_pool(up);
             player.max_pool
         };
@@ -333,7 +387,7 @@ impl GameState {
         true
     }
 
-    fn spawn_unit(&mut self, unit_type: &'static UnitDefinition, position: Hex) -> bool {
+    pub fn spawn_unit(&mut self, unit_type: &'static UnitDefinition, position: Hex) -> bool {
         let player_id = self.current_player_id();
 
         if !self.board.is_spawn_hex(position, player_id) || self.is_hex_occupied(position) {
@@ -355,21 +409,21 @@ impl GameState {
             current_speed: unit_type.speed,
         };
 
-        let player = self.get_player_mut(player_id);
+        let player = self.player_mut(player_id);
         player.add_unit(unit);
 
         true
     }
 
     fn unit_combat(&mut self, attacker_id: u16, target_id: u16) {
-        let damage = self.get_unit_by_id(attacker_id).unwrap().0.current_attack;
+        let damage = self.unit(attacker_id).unwrap().0.current_attack;
 
-        let (unit, player_id) = self.get_unit_by_id_mut(target_id).unwrap();
+        let (unit, player_id) = self.unit_mut(target_id).unwrap();
 
         let is_dead = unit.take_damage(damage);
 
         if is_dead {
-            let player = self.get_player_mut(player_id);
+            let player = self.player_mut(player_id);
             player.remove_unit(target_id);
         }
     }
