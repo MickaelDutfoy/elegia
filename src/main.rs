@@ -1,4 +1,4 @@
-use elegia_core::{Board, Element, GameState, Hex, PlayerId, Unit};
+use elegia_core::{Element, GameState, Hex, PlayerId, Unit};
 use macroquad::prelude::*;
 
 const BG_COLOR: Color = Color::new(0.75, 0.85, 0.95, 1.0);
@@ -120,13 +120,13 @@ fn draw_button(
     hovered && left_clicked
 }
 
-fn unit_initials(name: &str) -> String {
-    name.split_whitespace()
-        .filter_map(|word| word.chars().next())
-        .collect()
-}
-
 fn draw_unit_placeholder(x: f32, y: f32, size: f32, unit: &Unit, color: Color) {
+    fn unit_initials(name: &str) -> String {
+        name.split_whitespace()
+            .filter_map(|word| word.chars().next())
+            .collect()
+    }
+
     let radius = size * 0.75;
 
     draw_circle(x, y, radius, color);
@@ -188,8 +188,6 @@ async fn main() {
 
         // Board
 
-        let screen_w = screen_width();
-        let screen_h = screen_height();
         let origin_x = screen_w / 2.0;
         let origin_y = screen_h / 2.0;
 
