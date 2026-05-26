@@ -431,8 +431,6 @@ async fn main() {
 
         let roster_x = 24.0;
         let roster_y = 140.0;
-        let row_h = 32.0;
-        let row_w = 240.0;
 
         let (mouse_x, mouse_y) = mouse_position();
         let mouse = vec2(mouse_x, mouse_y);
@@ -449,7 +447,6 @@ async fn main() {
                 card_h,
             );
 
-            let hovered = rect.contains(mouse);
             let selected = selected_roster_index == Some(index);
 
             if draw_roster_card(rect, unit, selected, mouse, left_clicked) {
