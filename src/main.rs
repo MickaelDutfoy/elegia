@@ -1,4 +1,5 @@
-use elegia_core::{Element, GameState, Hex, PlayerId, Unit};
+use elegia_core::unit_catalog::UnitDefinition;
+use elegia_core::{Element, GameState, Hex, PlayerId, Pool, Unit};
 use macroquad::prelude::*;
 
 const BG_COLOR: Color = Color::new(0.75, 0.85, 0.95, 1.0);
@@ -120,13 +121,35 @@ fn draw_button(
     hovered && left_clicked
 }
 
-fn draw_unit_placeholder(x: f32, y: f32, size: f32, unit: &Unit, color: Color) {
-    fn unit_initials(name: &str) -> String {
-        name.split_whitespace()
-            .filter_map(|word| word.chars().next())
-            .collect()
+fn pool_to_string(pool: Pool) -> String {
+    let mut parts = Vec::new();
+
+    if pool.fire > 0 {
+        parts.push(format!("{}F", pool.fire));
     }
 
+    if pool.water > 0 {
+        parts.push(format!("{}W", pool.water));
+    }
+
+    if pool.air > 0 {
+        parts.push(format!("{}A", pool.air));
+    }
+
+    if pool.earth > 0 {
+        parts.push(format!("{}E", pool.earth));
+    }
+
+    parts.join("/")
+}
+
+fn unit_initials(name: &str) -> String {
+    name.split_whitespace()
+        .filter_map(|word| word.chars().next())
+        .collect()
+}
+
+fn draw_unit_placeholder(x: f32, y: f32, size: f32, unit: &Unit, color: Color) {
     let radius = size * 0.75;
 
     draw_circle(x, y, radius, color);
@@ -160,6 +183,78 @@ fn draw_unit_placeholder(x: f32, y: f32, size: f32, unit: &Unit, color: Color) {
         stats_size,
         WHITE,
     );
+}
+
+fn draw_roster_card(
+    rect: Rect,
+    unit: &UnitDefinition,
+    selected: bool,
+    mouse: Vec2,
+    left_clicked: bool,
+) -> bool {
+    let hovered = rect.contains(mouse);
+
+    let bg = if selected {
+        YELLOW
+    } else if hovered {
+        LIGHTGRAY
+    } else {
+        Color::new(0.86, 0.82, 0.70, 1.0)
+    };
+
+    draw_rectangle(rect.x, rect.y, rect.w, rect.h, bg);
+    draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 2.0, BLACK);
+
+    // Initials circle
+    let circle_x = rect.x + 28.0;
+    let circle_y = rect.y + 30.0;
+    let circle_radius = 20.0;
+
+    draw_circle(circle_x, circle_y, circle_radius, DARKGREEN);
+    draw_circle_lines(circle_x, circle_y, circle_radius, 2.0, BLACK);
+
+    let initials = unit_initials(unit.name);
+    let initials_size = 18.0;
+    let initials_dim = measure_text(&initials, None, initials_size as u16, 1.0);
+
+    draw_text(
+        &initials,
+        circle_x - initials_dim.width / 2.0,
+        circle_y + initials_dim.height / 2.0 - 3.0,
+        initials_size,
+        WHITE,
+    );
+
+    // Name
+    draw_text(unit.name, rect.x + 58.0, rect.y + 24.0, 18.0, BLACK);
+
+    // Cost, top-right
+    let cost = pool_to_string(unit.cost);
+    let cost_size = 18.0;
+    let cost_dim = measure_text(&cost, None, cost_size as u16, 1.0);
+
+    draw_text(
+        &cost,
+        rect.x + rect.w - cost_dim.width - 10.0,
+        rect.y + 24.0,
+        cost_size,
+        BLACK,
+    );
+
+    // Stats bottom
+    let stats = format!("{}/{}/{}", unit.attack, unit.health, unit.speed);
+    let stats_size = 17.0;
+    let stats_dim = measure_text(&stats, None, stats_size as u16, 1.0);
+
+    draw_text(
+        &stats,
+        rect.x + rect.w / 2.0 - stats_dim.width / 2.0,
+        rect.y + rect.h - 12.0,
+        stats_size,
+        BLACK,
+    );
+
+    hovered && left_clicked
 }
 
 #[macroquad::main("Elegia")]
@@ -343,31 +438,24 @@ async fn main() {
         let mouse = vec2(mouse_x, mouse_y);
 
         for (index, unit) in south_roster.iter().enumerate() {
-            let text_x = roster_x;
-            let text_y = roster_y + index as f32 * row_h;
+            let card_w = 280.0;
+            let card_h = 68.0;
+            let card_gap = 8.0;
 
-            let rect = Rect::new(roster_x - 4.0, text_y - 24.0, row_w, row_h);
+            let rect = Rect::new(
+                roster_x,
+                roster_y + index as f32 * (card_h + card_gap),
+                card_w,
+                card_h,
+            );
 
             let hovered = rect.contains(mouse);
             let selected = selected_roster_index == Some(index);
 
-            if selected {
-                draw_rectangle(rect.x, rect.y, rect.w, rect.h, YELLOW);
-            } else if hovered {
-                draw_rectangle(rect.x, rect.y, rect.w, rect.h, LIGHTGRAY);
-            }
-
-            if hovered && left_clicked {
-                if selected {
-                    selected_roster_index = None;
-                } else {
-                    selected_roster_index = Some(index);
-                }
-
+            if draw_roster_card(rect, unit, selected, mouse, left_clicked) {
+                selected_roster_index = if selected { None } else { Some(index) };
                 ui_clicked = true;
             }
-
-            draw_text(unit.name, text_x, text_y, 24.0, BLACK);
         }
 
         // Hex selection
