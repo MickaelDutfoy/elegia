@@ -319,7 +319,7 @@ async fn main() {
             }
         }
 
-        for unit in game.units_from_player(PlayerId::South) {
+        for unit in game.units_of_player(PlayerId::South) {
             let (dx, dy) = hex_to_screen(unit.position.q.into(), unit.position.r.into(), size);
             let x = origin_x + dx;
             let y = origin_y + dy;
@@ -430,7 +430,7 @@ async fn main() {
         let south_roster = game.roster_from_player(PlayerId::South);
 
         let roster_x = 24.0;
-        let roster_y = 140.0;
+        let roster_y = 220.0;
 
         let (mouse_x, mouse_y) = mouse_position();
         let mouse = vec2(mouse_x, mouse_y);

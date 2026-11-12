@@ -1,4 +1,6 @@
 pub mod unit_catalog;
+use std::collections::{HashSet, VecDeque};
+
 use crate::unit_catalog::UnitDefinition;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,10 +30,41 @@ impl Pool {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Hex {
     pub q: i8,
     pub r: i8,
+}
+
+impl Hex {
+    pub fn neighbors(&self) -> [Hex; 6] {
+        [
+            Hex {
+                q: self.q + 1,
+                r: self.r,
+            },
+            Hex {
+                q: self.q + 1,
+                r: self.r - 1,
+            },
+            Hex {
+                q: self.q,
+                r: self.r - 1,
+            },
+            Hex {
+                q: self.q - 1,
+                r: self.r,
+            },
+            Hex {
+                q: self.q - 1,
+                r: self.r + 1,
+            },
+            Hex {
+                q: self.q,
+                r: self.r + 1,
+            },
+        ]
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -54,7 +87,7 @@ impl Board {
             for r in -radius..=radius {
                 let hex = Hex { q, r };
 
-                if self.is_valid_hex(hex) {
+                if self.contains_hex(hex) {
                     hexes.push(hex);
                 }
             }
@@ -63,7 +96,7 @@ impl Board {
         hexes
     }
 
-    fn is_valid_hex(&self, hex: Hex) -> bool {
+    fn contains_hex(&self, hex: Hex) -> bool {
         let q = hex.q;
         let r = hex.r;
         let s = -q - r;
@@ -79,7 +112,7 @@ impl Board {
     }
 
     pub fn is_spawn_hex(&self, hex: Hex, player_id: PlayerId) -> bool {
-        if !self.is_valid_hex(hex) || hex == self.orb_hex(player_id) {
+        if !self.contains_hex(hex) || hex == self.orb_hex(player_id) {
             return false;
         }
 
@@ -98,6 +131,8 @@ pub struct Unit {
     pub current_attack: u8,
     pub current_health: u8,
     pub current_speed: u8,
+    pub has_moved: bool,
+    pub has_attacked: bool,
 }
 
 impl Unit {
@@ -279,10 +314,7 @@ impl GameState {
     }
 
     pub fn roster_from_player(&self, player_id: PlayerId) -> &[&'static UnitDefinition] {
-        match player_id {
-            PlayerId::South => &self.player_south.roster,
-            PlayerId::North => &self.player_north.roster,
-        }
+        &self.player(player_id).roster
     }
 
     fn unit(&self, id: u16) -> Option<(&Unit, PlayerId)> {
@@ -319,11 +351,8 @@ impl GameState {
         None
     }
 
-    pub fn units_from_player(&self, player_id: PlayerId) -> &[Unit] {
-        match player_id {
-            PlayerId::South => &self.player_south.units,
-            PlayerId::North => &self.player_north.units,
-        }
+    pub fn units_of_player(&self, player_id: PlayerId) -> &[Unit] {
+        &self.player(player_id).units
     }
 
     fn is_hex_occupied(&self, position: Hex) -> bool {
@@ -336,6 +365,80 @@ impl GameState {
                 .units
                 .iter()
                 .any(|unit| unit.position == position)
+    }
+
+    pub fn is_hex_blocked_for_movement(&self, hex: Hex) -> bool {
+        hex == self.board.orb_hex(PlayerId::North)
+            || hex == self.board.orb_hex(PlayerId::South)
+            || self.is_hex_occupied(hex)
+    }
+
+    pub fn reachable_hexes_of_unit(&self, unit_id: u16) -> Vec<Hex> {
+        let Some((unit, owner)) = self.unit(unit_id) else {
+            return vec![];
+        };
+
+        if owner != self.current_player_id() {
+            return vec![];
+        }
+
+        if unit.has_moved {
+            return vec![];
+        }
+
+        let origin = unit.position;
+        let speed = unit.current_speed;
+
+        let mut reachable = Vec::new();
+        let mut visited = HashSet::new();
+        let mut frontier = VecDeque::new();
+
+        visited.insert(origin);
+        frontier.push_back((origin, 0));
+
+        while let Some((current, distance)) = frontier.pop_front() {
+            for neighbor in current.neighbors() {
+                if distance + 1 > speed {
+                    continue;
+                }
+
+                if !self.board.contains_hex(neighbor) {
+                    continue;
+                }
+
+                if visited.contains(&neighbor) {
+                    continue;
+                }
+
+                if self.is_hex_blocked_for_movement(neighbor) {
+                    continue;
+                }
+
+                visited.insert(neighbor);
+                reachable.push(neighbor);
+
+                if distance + 1 < speed {
+                    frontier.push_back((neighbor, distance + 1));
+                }
+            }
+        }
+
+        reachable
+    }
+
+    pub fn move_unit(&mut self, unit_id: u16, target: Hex) -> bool {
+        if !self.reachable_hexes_of_unit(unit_id).contains(&target) {
+            return false;
+        }
+
+        let Some((unit, _owner)) = self.unit_mut(unit_id) else {
+            return false;
+        };
+
+        unit.position = target;
+        unit.has_moved = true;
+
+        true
     }
 
     pub fn current_player_id(&self) -> PlayerId {
@@ -357,15 +460,27 @@ impl GameState {
     }
 
     pub fn end_turn(&mut self) {
+        let next_player_id = match self.current_player_id() {
+            PlayerId::South => PlayerId::North,
+            PlayerId::North => PlayerId::South,
+        };
+
         self.current_turn_id += 1;
 
-        self.start_new_turn();
+        self.start_new_turn(next_player_id);
     }
 
-    fn start_new_turn(&mut self) {
-        let player_id = self.current_player_id();
+    fn start_new_turn(&mut self, player_id: PlayerId) {
+        let max_pool = self.player(player_id).max_pool;
 
-        self.turn = TurnState::new(player_id, self.player(player_id).max_pool)
+        let player = self.player_mut(player_id);
+
+        for unit in &mut player.units {
+            unit.has_moved = false;
+            unit.has_attacked = false;
+        }
+
+        self.turn = TurnState::new(player_id, max_pool);
     }
 
     pub fn increase_current_player_mana(&mut self, up: Element) -> bool {
@@ -407,6 +522,8 @@ impl GameState {
             current_attack: unit_type.attack,
             current_health: unit_type.health,
             current_speed: unit_type.speed,
+            has_moved: true,
+            has_attacked: true,
         };
 
         let player = self.player_mut(player_id);
